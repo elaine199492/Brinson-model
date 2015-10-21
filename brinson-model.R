@@ -143,7 +143,7 @@ count_RW <- function(x,i_length,i_loc){
   return(row_sum)
 }
 #---------------主函数----------------
-gen_MAtrix <- function(returns,weight,industry,indexweight){
+gen_Matrix <- function(returns,weight,industry,indexweight){
   #本函数用于生成每天的配置收益，选股收益和交叉收益
   #输入：
   #returns：投资组合每日收益率，是一个数据框
@@ -165,7 +165,7 @@ gen_MAtrix <- function(returns,weight,industry,indexweight){
   
   index_return <- addCol(returns,indexreturn)
   index_weight <- addCol(returns,indexweight)
-  return[is.na(return)]<-0
+  returns[is.na(returns)]<-0
   weight[is.na(weight)]<-0
   index_return[is.na(index_return)]<-0
   index_weight[is.na(index_weight)]<-0
@@ -184,6 +184,7 @@ gen_MAtrix <- function(returns,weight,industry,indexweight){
   index_weight <- toMatrix(index_weight)
   
   index <- index_return*index_weight#投资组合每一只股票每一天Wi*Ri的矩阵
+  index[is.na(index)] <- 0
   real_Return <- returns*weight#基准组合每一只股票每一天Wi*Ri的矩阵
   real_Return[is.na(real_Return)] <- 0
   
@@ -208,18 +209,93 @@ gen_MAtrix <- function(returns,weight,industry,indexweight){
   SR_Total_plus1 <- 1
   RP_plus1 <- 1
   RB_plus1 <- 1
-  for(i in 1:(nrow(ASI)-1)){
-    AR_Total_plus1 <- AR_Total*(ASI[i,1]+1)#计算多期总配置收益再加1的值
-    SR_Total_plus1 <- SR_Total*(ASI[i,2]+1)#计算多期总选股收益再加1的值
-    RP_plus1 <- RP*(rp[i,1]+1)#计算多期总投资组合收益再加1的值
-    RB_plus1 <- RB*(rb[i,1]+1)#计算多期总基准组合收益再加1的值
+  for(i in 1:nrow(ASI)){
+    AR_Total_plus1 <- AR_Total_plus1*(ASI[i,1]+1)#计算多期总配置收益再加1的值
+    SR_Total_plus1 <- SR_Total_plus1*(ASI[i,2]+1)#计算多期总选股收益再加1的值
+    RP_plus1 <- RP_plus1*(rp[i,1]+1)#计算多期总投资组合收益再加1的值
+    RB_plus1 <- RB_plus1*(rb[i,1]+1)#计算多期总基准组合收益再加1的值
   }
   IR_Total_plus1 <- RP_plus1/RB_plus1/AR_Total_plus1/SR_Total_plus1#计算多期总交叉收益再加1的值
-  ASI_Total <- rbind(ASI,c(AR_Total_plus1-1,SR_Total_plus1-1,IR_Total_plus1-1),col=3)
-  
+  ASI_Total <- rbind(ASI,c(AR_Total_plus1-1,SR_Total_plus1-1,IR_Total_plus1-1))
   date <- c(date,"total")
   ASI_Total <- data.frame(cbind(date,ASI_Total))
   return(ASI_Total)
+}
+
+
+gen_industry_Matrix <- function(returns.weight,industry,indexweight){
+  returns <- sixcode(returns)
+  weight <- sixcode(weight)
+  indexweight <- sixcode(indexweight)
+  
+  i_loc <- unique_industry(industry)
+  i_length <- unique_length(industry)
+  
+  indexreturn <- genReturn(returns,indexweight)
+  
+  index_return <- addCol(returns,indexreturn)
+  index_weight <- addCol(returns,indexweight)
+  returns[is.na(returns)]<-0
+  weight[is.na(weight)]<-0
+  index_return[is.na(index_return)]<-0
+  index_weight[is.na(index_weight)]<-0
+  
+  code <- returns[1,]#股票代码哪一行存储在code里
+  date <- returns[,1]
+  date <- date[-1]#股票时间那一列存储在date里
+  returns <- delete(returns)
+  weight <- delete(weight)
+  index_return <- delete(index_return)
+  index_weight <- delete(index_weight)
+  
+  returns <- toMatrix(returns)
+  weight <- toMatrix(weight)
+  index_return <- toMatrix(index_return)
+  index_weight <- toMatrix(index_weight)
+  
+  index <- index_return*index_weight#投资组合每一只股票每一天Wi*Ri的矩阵
+  index[is.na(index)] <- 0
+  real_Return <- returns*weight#基准组合每一只股票每一天Wi*Ri的矩阵
+  real_Return[is.na(real_Return)] <- 0
+  
+  Wb <- count_RW(index_weight,i_length,i_loc)#Wb为基准组合每个行业的权重
+  Wp <- count_RW(weight,i_length,i_loc)#Wp为投资组合每个行业的权重
+  
+  Rb <- count_RW(index,i_length,i_loc)/Wb#Rb为基准组合每个行业的收益率
+  Rb[is.na(Rb)] <- 0
+  Rp <- count_RW(real_Return,i_length,i_loc)/Wp#Rp为投资组合每个行业的收益率
+  Rp[is.na(Rp)] <- 0
+  
+  
+
+  #求每个行业里
+  
+  for(j in 1:length(i_length)){
+    if(j ==1){
+      loc <- i_loc[1:i_length[1]]
+      W_bi <- index_weight[,loc]/Wb[,1]
+      W_pi <- weight[,loc]/Wb[,1]
+      r_bi <- index_return[,loc]
+      r_pi <- returns[,loc]
+      AR_i <- rowSums((W_pi-W_bi)*((1+r_bi)/(1+Rb[,j])-1))#每天的配置收益
+      SR_i <- rowSums(W_bi*(r_pi-r_bi)/(1+Rb[,j]))#每天的个股选择收益
+      IR_i <- (1+Rb[,j])/(1+Rb[,j])/(1+AR_i)/(1+SR_i)#每天的交叉收益
+    }
+    else{
+      loc <- i_loc[(i_length[j-1]+1):(i_length[j-1]+i_length[j])]
+      W_bi <- index_weight[,loc]/Wb[,j]
+      W_pi <- weight[,loc]/Wb[,j]
+      r_bi <- index_return[,loc]
+      r_pi <- returns[,loc]
+      W_bi[is.na(W_bi)] <- 0  
+      W_pi[is.na(W_pi)] <- 0
+      AR_i <- cbind(AR_i,rowSums((W_pi-W_bi)*((1+r_bi)/(1+Rb[,j])-1)))#每天的配置收益
+      SR_i <- rowSums(W_bi*(r_pi-r_bi)/(1+Rb[,j]))#每天的个股选择收益
+      IR_i <- (1+Rb[,j])/(1+Rb[,j])/(1+AR_i)/(1+SR_i)#每天的交叉收益
+    } 
+  }
+  ASI_i <- cbind(AR_i, SR_i, IR_i)
+  return(ASI_i)
 }
 #---------------执行部分----------------
 returns <- loadfile("return.csv")
@@ -227,4 +303,5 @@ weight <- loadfile("weight.csv")
 industry <- loadfile("industry.csv")
 indexweight <- loadfile("indexWeight.csv")
 ASI_Total <- gen_Matrix(returns,weight,industry,indexweight)
+ASI_i <- gen_industry_Matrix(returns.weight,industry,indexweight)
 write.table(ASI_Total,file="Brinson Result",append = FALSE, quote = FALSE, sep = " ")
