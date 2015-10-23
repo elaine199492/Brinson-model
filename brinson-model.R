@@ -89,12 +89,12 @@ addCol <- function(returns,x){
   
   #输出：
   #y:基准组合数据框
-  location <- returns[1,]%in%indexweight[1,]
+  location <- returns[1,]%in%x[1,]
   remains <- data.frame(matrix(nrow=nrow(returns),ncol=ncol(returns)))#生成行列与returns相等的空数据框
   remains[1,] <- returns[1,]#提取returns第一行remains数据框，为股票代码到
   remains[,1] <- returns[,1]#提取returns第一列remains数据框，为时间区间
   remains[location] <- x
-  y <- remains#把indexreturn补充成股票代码与投资组合一致，补充部分用0表示收益率
+  y <- remains
   return(y)
 }
 #---------------Brinson模型处理--------------------
