@@ -1,6 +1,6 @@
 #---------------groundworks-------------------
 rm(list=ls())
-setwd("C:/Users/ptang/Desktop")
+setwd("C:/Users/ptang/Desktop/cjr/Brinson模型/data")
 #---------------导入数据-------------------
 loadfile <- function(filename){
   ##本函数用于导入csv文件
@@ -123,6 +123,7 @@ toMatrix <- function(x){
   x2 <- matrix(as.numeric(x1), nrow=nrow(x1))
   return(x2)
 }
+#---------------每个行业的收益率和权重--------------------
 count_RW <- function(x,i_length,i_loc){
   #此函数用来计算28个行业的收益率Rp,权重Wp,以及基准收益率Rb,基准权重Wb
   #输入：
@@ -137,15 +138,16 @@ count_RW <- function(x,i_length,i_loc){
   loc <- i_loc[1:i_length[1]]
   row_sum <- c(row_sum,rowSums(x[,loc]))
   for(j in 2:length(i_length)){
-    loc <- i_loc[(i_length[j-1]+1):(i_length[j-1]+i_length[j])]
+    loc <- i_loc[(sum(i_length[1:(j-1)])+1):(sum(i_length[1:j]))]
     row_sum <- matrix(c(row_sum,rowSums(x[,loc])),nrow=1610)
   }
   return(row_sum)
 }
 #---------------主函数----------------
-gen_Matrix <- function(returns,weight,industry,indexweight){
+gen_Matrix <- function(j,returns,weight,industry,indexweight){
   #本函数用于生成每天的配置收益，选股收益和交叉收益
   #输入：
+  #j:取值为0到28,当为0时，输出的是总体的Brinson模型，当取值为1-28时，分别对应一个行业的细分Brinson模型框架
   #returns：投资组合每日收益率，是一个数据框
   #weight：投资组合每日权重，是一个数据框
   #industry：投资组合内每只股票对应行业，是一个数据框
@@ -177,6 +179,7 @@ gen_Matrix <- function(returns,weight,industry,indexweight){
   weight <- delete(weight)
   index_return <- delete(index_return)
   index_weight <- delete(index_weight)
+  industry <- industry[-1,]
   
   returns <- toMatrix(returns)
   weight <- toMatrix(weight)
@@ -189,119 +192,79 @@ gen_Matrix <- function(returns,weight,industry,indexweight){
   real_Return[is.na(real_Return)] <- 0
   
   Wb <- count_RW(index_weight,i_length,i_loc)#Wb为基准组合每个行业的权重
+  Wb[is.na(Wb)] <- 0
   Wp <- count_RW(weight,i_length,i_loc)#Wp为投资组合每个行业的权重
-  Rb <- count_RW(index,i_length,i_loc)/Wb#Rb为基准组合每个行业的收益率
-  Rb[is.na(Rb)] <- 0
-  Rp <- count_RW(real_Return,i_length,i_loc)/Wp#Rp为投资组合每个行业的收益率
-  Rp[is.na(Rp)] <- 0
-  
-  #算每天的总基准收益率rb，总投资收益率rp，为一个矩阵，列均复制为相同，便于下面的矩阵加减运算
-  rb <- matrix(rowSums(index),ncol=28,nrow=1610)
-  rp <- matrix(rowSums(real_Return),ncol=28,nrow=1610)
-  
-  AR <- rowSums((Wp-Wb)*((1+Rb)/(1+rb)-1))#每天的配置收益
-  SR <- rowSums(Wb*(Rp-Rb)/(1+rb))#每天的个股选择收益
-  IR <- (1+rp[,1])/(1+rb[,1])/(1+AR)/(1+SR)#每天的交叉收益
-  ASI <- cbind(AR,SR,IR)#将每天的配置收益，个股选择收益和交叉收益列合并成一个矩阵
-  
-  #多期Brinson模型总超额收益
-  AR_Total_plus1 <- 1
-  SR_Total_plus1 <- 1
-  RP_plus1 <- 1
-  RB_plus1 <- 1
-  for(i in 1:nrow(ASI)){
-    AR_Total_plus1 <- AR_Total_plus1*(ASI[i,1]+1)#计算多期总配置收益再加1的值
-    SR_Total_plus1 <- SR_Total_plus1*(ASI[i,2]+1)#计算多期总选股收益再加1的值
-    RP_plus1 <- RP_plus1*(rp[i,1]+1)#计算多期总投资组合收益再加1的值
-    RB_plus1 <- RB_plus1*(rb[i,1]+1)#计算多期总基准组合收益再加1的值
-  }
-  IR_Total_plus1 <- RP_plus1/RB_plus1/AR_Total_plus1/SR_Total_plus1#计算多期总交叉收益再加1的值
-  ASI_Total <- rbind(ASI,c(AR_Total_plus1-1,SR_Total_plus1-1,IR_Total_plus1-1))
-  date <- c(date,"total")
-  ASI_Total <- data.frame(cbind(date,ASI_Total))
-  return(ASI_Total)
-}
-
-
-gen_industry_Matrix <- function(returns.weight,industry,indexweight){
-  returns <- sixcode(returns)
-  weight <- sixcode(weight)
-  indexweight <- sixcode(indexweight)
-  
-  i_loc <- unique_industry(industry)
-  i_length <- unique_length(industry)
-  
-  indexreturn <- genReturn(returns,indexweight)
-  
-  index_return <- addCol(returns,indexreturn)
-  index_weight <- addCol(returns,indexweight)
-  returns[is.na(returns)]<-0
-  weight[is.na(weight)]<-0
-  index_return[is.na(index_return)]<-0
-  index_weight[is.na(index_weight)]<-0
-  
-  code <- returns[1,]#股票代码哪一行存储在code里
-  date <- returns[,1]
-  date <- date[-1]#股票时间那一列存储在date里
-  returns <- delete(returns)
-  weight <- delete(weight)
-  index_return <- delete(index_return)
-  index_weight <- delete(index_weight)
-  
-  returns <- toMatrix(returns)
-  weight <- toMatrix(weight)
-  index_return <- toMatrix(index_return)
-  index_weight <- toMatrix(index_weight)
-  
-  index <- index_return*index_weight#投资组合每一只股票每一天Wi*Ri的矩阵
-  index[is.na(index)] <- 0
-  real_Return <- returns*weight#基准组合每一只股票每一天Wi*Ri的矩阵
-  real_Return[is.na(real_Return)] <- 0
-  
-  Wb <- count_RW(index_weight,i_length,i_loc)#Wb为基准组合每个行业的权重
-  Wp <- count_RW(weight,i_length,i_loc)#Wp为投资组合每个行业的权重
-  
+  Wp[is.na(Wp)] <- 0
   Rb <- count_RW(index,i_length,i_loc)/Wb#Rb为基准组合每个行业的收益率
   Rb[is.na(Rb)] <- 0
   Rp <- count_RW(real_Return,i_length,i_loc)/Wp#Rp为投资组合每个行业的收益率
   Rp[is.na(Rp)] <- 0
   
   
-
-  #求每个行业里
-  
-  for(j in 1:length(i_length)){
-    if(j ==1){
-      loc <- i_loc[1:i_length[1]]
-      W_bi <- index_weight[,loc]/Wb[,1]
-      W_pi <- weight[,loc]/Wb[,1]
-      r_bi <- index_return[,loc]
-      r_pi <- returns[,loc]
-      AR_i <- rowSums((W_pi-W_bi)*((1+r_bi)/(1+Rb[,j])-1))#每天的配置收益
-      SR_i <- rowSums(W_bi*(r_pi-r_bi)/(1+Rb[,j]))#每天的个股选择收益
-      IR_i <- (1+Rb[,j])/(1+Rb[,j])/(1+AR_i)/(1+SR_i)#每天的交叉收益
+  if(j==0){
+    #算每天的总基准收益率rb，总投资收益率rp，为一个矩阵，列均复制为相同，便于下面的矩阵加减运算
+    rb <- matrix(rowSums(index),ncol=28,nrow=1610)
+    rp <- matrix(rowSums(real_Return),ncol=28,nrow=1610)
+    
+    AR <- rowSums((Wp-Wb)*((1+Rb)/(1+rb)-1))#每天的配置收益
+    SR <- rowSums(Wb*(Rp-Rb)/(1+rb))#每天的个股选择收益
+    IR <- (1+rp[,1])/(1+rb[,1])/(1+AR)/(1+SR)#每天的交叉收益
+    ASI <- cbind(AR,SR,IR)#将每天的配置收益，个股选择收益和交叉收益列合并成一个矩阵
+    
+    #多期Brinson模型总超额收益
+    AR_Total_plus1 <- 1
+    SR_Total_plus1 <- 1
+    RP_plus1 <- 1
+    RB_plus1 <- 1
+    for(i in 1:nrow(ASI)){
+      AR_Total_plus1 <- AR_Total_plus1*(ASI[i,1]+1)#计算多期总配置收益再加1的值
+      SR_Total_plus1 <- SR_Total_plus1*(ASI[i,2]+1)#计算多期总选股收益再加1的值
+      RP_plus1 <- RP_plus1*(rp[i,1]+1)#计算多期总投资组合收益再加1的值
+      RB_plus1 <- RB_plus1*(rb[i,1]+1)#计算多期总基准组合收益再加1的值
     }
-    else{
-      loc <- i_loc[(i_length[j-1]+1):(i_length[j-1]+i_length[j])]
-      W_bi <- index_weight[,loc]/Wb[,j]
-      W_pi <- weight[,loc]/Wb[,j]
-      r_bi <- index_return[,loc]
-      r_pi <- returns[,loc]
-      W_bi[is.na(W_bi)] <- 0  
-      W_pi[is.na(W_pi)] <- 0
-      AR_i <- cbind(AR_i,rowSums((W_pi-W_bi)*((1+r_bi)/(1+Rb[,j])-1)))#每天的配置收益
-      SR_i <- rowSums(W_bi*(r_pi-r_bi)/(1+Rb[,j]))#每天的个股选择收益
-      IR_i <- (1+Rb[,j])/(1+Rb[,j])/(1+AR_i)/(1+SR_i)#每天的交叉收益
-    } 
+    IR_Total_plus1 <- RP_plus1/RB_plus1/AR_Total_plus1/SR_Total_plus1#计算多期总交叉收益再加1的值
+    ASI_Total <- rbind(ASI,c(AR_Total_plus1-1,SR_Total_plus1-1,IR_Total_plus1-1))
+    date <- c(date,"total")
+    ASI_Total <- data.frame(cbind(date,ASI_Total))
   }
-  ASI_i <- cbind(AR_i, SR_i, IR_i)
-  return(ASI_i)
+  else if(j ==1){
+    loc <- i_loc[1:i_length[j]]
+    W_bi <- index_weight[,loc]/Wb[,1]
+    W_pi <- weight[,loc]/Wb[,1]
+    r_bi <- index_return[,loc]
+    r_pi <- returns[,loc]
+    AR_i <- rowSums((W_pi-W_bi)*((1+r_bi)/(1+Rb[,j])-1))#每天的配置收益
+    SR_i <- rowSums(W_bi*(r_pi-r_bi)/(1+Rb[,j]))#每天的个股选择收益
+    IR_i <- (1+Rp[,j])/(1+Rb[,j])/(1+AR_i)/(1+SR_i)#每天的交叉收益
+    ASI_Total <- data.frame(cbind(rep(industry[loc[1],3],1610),date,AR_i, SR_i, IR_i))
+  }
+  else{
+    loc <- i_loc[(sum(i_length[1:(j-1)])+1):(sum(i_length[1:j]))]
+    W_bi <- index_weight[,loc]/Wb[,j]
+    W_pi <- weight[,loc]/Wb[,j]
+    r_bi <- index_return[,loc]
+    r_pi <- returns[,loc]
+    W_bi[is.na(W_bi)] <- 0  
+    W_pi[is.na(W_pi)] <- 0
+    AR_i <- rowSums((W_pi-W_bi)*((1+r_bi)/(1+Rb[,j])-1))#每天的配置收益
+    SR_i <- rowSums(W_bi*(r_pi-r_bi)/(1+Rb[,j]))#每天的个股选择收益
+    IR_i <- (1+Rp[,j])/(1+Rb[,j])/(1+AR_i)/(1+SR_i)#每天的交叉收益
+    ASI_Total <- data.frame(cbind(rep(industry[loc[1],3],1610),date,AR_i, SR_i, IR_i))
+  }
+  return(ASI_Total)
 }
 #---------------执行部分----------------
 returns <- loadfile("return.csv")
 weight <- loadfile("weight.csv")
 industry <- loadfile("industry.csv")
 indexweight <- loadfile("indexWeight.csv")
-ASI_Total <- gen_Matrix(returns,weight,industry,indexweight)
-ASI_i <- gen_industry_Matrix(returns.weight,industry,indexweight)
+
+#下面计算简单多期Brinson模型的超额收益归因
+ASI_Total <- gen_Matrix(0,returns,weight,industry,indexweight)
 write.table(ASI_Total,file="Brinson Result",append = FALSE, quote = FALSE, sep = " ")
+
+#下面计算Brinson模型细分到行业的超额收益归因，共28个行业
+for(i in 1:28){
+  ASI_i <- gen_Matrix(i,returns,weight,industry,indexweight)
+  write.table(ASI_i,file=as.character(ASI_i[1,1]),append = FALSE, quote = FALSE, sep = " ")
+}
